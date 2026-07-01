@@ -341,8 +341,8 @@
     <button class="reset-btn" onclick="resetVote()">내 투표 취소하기</button>
 
     <div class="note">
-      💡 이 투표는 <b>이 폰(브라우저)에만</b> 저장돼요. 다 같이 결과를 보려면
-      투표하고 나서 화면을 캡쳐해 단톡방에 올려주세요!
+      💡 <b>실시간 투표</b>예요! 누가 투표하면 모두의 화면에 바로 반영돼요.
+      마음이 바뀌면 다른 곳을 눌러 언제든 바꿀 수 있어요.
     </div>
   </section>
 
@@ -355,7 +355,21 @@
   <div class="lb-hint">아무 곳이나 누르면 닫혀요</div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
+  /* ---------- Firebase 초기화 (실시간 투표 저장소) ---------- */
+  firebase.initializeApp({
+    apiKey: "AIzaSyCU2mD7SgW7KGFi7aiX_GUd62KXPCOr5BQ",
+    authDomain: "meetup0729.firebaseapp.com",
+    databaseURL: "https://meetup0729-default-rtdb.firebaseio.com",
+    projectId: "meetup0729",
+    storageBucket: "meetup0729.firebasestorage.app",
+    messagingSenderId: "727479660583",
+    appId: "1:727479660583:web:555b1ea169acfa38115e02"
+  });
+  var db = firebase.database();
+
   /* ---------- 달력 그리기 (2026년 7월, 1일=수요일) ---------- */
   // 0=일 ... 6=토.  2026-07-01은 수요일(3)
   var FIRST_DOW = 3;      // 7월 1일의 요일
@@ -413,22 +427,19 @@
     box.appendChild(f);
   }
 
-  /* ---------- 투표 ---------- */
+  /* ---------- 실시간 투표 (Firebase Realtime Database) ---------- */
   var RESTOS=[
     {key:'woothender', name:'우텐더 정자점', sub:'한우 오마카세'},
     {key:'moons',      name:'문스',        sub:'용인 파스타'},
     {key:'sushisora',  name:'스시소라 정자점', sub:'스시 오마카세'}
   ];
-  var STORE_KEY='meetup_vote_2026_07';
-  var COUNT_KEY='meetup_counts_2026_07';
+  var MY_KEY='meetup0729_myvote';        // 내가 뭘 골랐는지(이 폰에만 기억)
+  var votesRef=db.ref('votes');          // 모두가 공유하는 투표 집계
 
-  function getCounts(){
-    try{return JSON.parse(localStorage.getItem(COUNT_KEY))||{};}catch(e){return {};}
-  }
-  function getMyVote(){ return localStorage.getItem(STORE_KEY); }
+  function getMyVote(){ return localStorage.getItem(MY_KEY); }
 
-  function render(){
-    var counts=getCounts();
+  function render(counts){
+    counts=counts||{};
     var my=getMyVote();
     var total=0;
     RESTOS.forEach(function(r){ total+=(counts[r.key]||0); });
@@ -455,25 +466,25 @@
   }
 
   function vote(key){
-    var counts=getCounts();
     var my=getMyVote();
     if(my===key){ return; }            // 같은 거 다시 누르면 유지
-    if(my){ counts[my]=Math.max(0,(counts[my]||0)-1); } // 이전 표 회수
-    counts[key]=(counts[key]||0)+1;
-    localStorage.setItem(COUNT_KEY,JSON.stringify(counts));
-    localStorage.setItem(STORE_KEY,key);
-    render();
+    if(my){                            // 이전 표 회수
+      db.ref('votes/'+my).transaction(function(c){ c=(c||0)-1; return c<0?0:c; });
+    }
+    db.ref('votes/'+key).transaction(function(c){ return (c||0)+1; });  // 새 표 반영
+    localStorage.setItem(MY_KEY,key);
+    votesRef.once('value').then(function(s){ render(s.val()); });       // 내 체크 즉시 표시
   }
   function resetVote(){
-    var counts=getCounts();
     var my=getMyVote();
-    if(my){ counts[my]=Math.max(0,(counts[my]||0)-1);
-      localStorage.setItem(COUNT_KEY,JSON.stringify(counts));
-      localStorage.removeItem(STORE_KEY);
-      render();
-    }
+    if(!my) return;
+    db.ref('votes/'+my).transaction(function(c){ c=(c||0)-1; return c<0?0:c; });
+    localStorage.removeItem(MY_KEY);
+    votesRef.once('value').then(function(s){ render(s.val()); });
   }
-  render();
+
+  // 누가 투표하든 모두의 화면이 자동으로 실시간 갱신됨
+  votesRef.on('value', function(snap){ render(snap.val()); });
 </script>
 </body>
 </html>
