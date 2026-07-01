@@ -210,6 +210,13 @@
   .hint-max{
     text-align:center;color:#e0866a;font-size:12px;margin:8px 0 4px;min-height:16px;
   }
+  .countdown{
+    text-align:center;background:#fff4ec;border:1.5px solid #ffd9c9;color:#e5623f;
+    border-radius:14px;padding:11px 12px;font-size:14px;margin-bottom:16px;
+  }
+  .countdown b{font-weight:800;font-variant-numeric:tabular-nums;}
+  .countdown .dday{font-size:12px;opacity:.85;display:block;margin-bottom:2px;}
+  .countdown.closed{background:#f3eee6;border-color:#e2d9c8;color:#8a8378;}
 
   footer{text-align:center;color:#c3bba9;font-size:12px;padding:8px 0;}
 
@@ -351,6 +358,8 @@
     <div class="sec-title">🗳️ 어디로 갈까요?</div>
     <div class="sec-desc">가고 싶은 곳을 <b>최대 2곳</b>까지 고르고 '투표 완료'를 눌러주세요.</div>
 
+    <div class="countdown" id="countdown"></div>
+
     <div id="vote-list"></div>
     <div class="hint-max" id="vote-hint"></div>
     <div id="vote-action"></div>
@@ -455,6 +464,8 @@
   var MY_KEY='meetup0729_myvotes';       // 내가 확정한 선택들(이 폰에만 기억)
   var votesRef=db.ref('votes');          // 모두가 공유하는 투표 집계
   var currentCounts={};                  // 실시간으로 받아오는 표 집계
+  var DEADLINE=new Date(2026,6,4,23,59,59); // 마감: 2026년 7월 4일 23:59:59 (월은 0부터라 6=7월)
+  function isClosed(){ return new Date().getTime() > DEADLINE.getTime(); }
 
   function loadMine(){
     try{ return JSON.parse(localStorage.getItem(MY_KEY))||[]; }catch(e){ return []; }
@@ -473,6 +484,7 @@
 
   // 식당 선택/해제 (확정 전에만)
   function toggle(key){
+    if(isClosed()){ return; }
     if(submitted) return;
     var i=pending.indexOf(key);
     if(i>=0){ pending.splice(i,1); hint(''); }
@@ -485,6 +497,7 @@
 
   // 투표 완료 → 서버에 반영
   function submitVote(){
+    if(isClosed()) return;
     if(pending.length===0) return;
     var removeList=myVotes.filter(function(k){ return pending.indexOf(k)<0; });
     var addList=pending.filter(function(k){ return myVotes.indexOf(k)<0; });
@@ -498,6 +511,7 @@
 
   // 다시 선택하기
   function editVote(){
+    if(isClosed()) return;
     submitted=false;
     pending=myVotes.slice();
     hint(''); draw();
@@ -505,6 +519,7 @@
 
   // 내 투표 취소하기 (표 회수 후 처음 상태로)
   function resetVote(){
+    if(isClosed()) return;
     myVotes.forEach(function(k){ db.ref('votes/'+k).transaction(dec); });
     myVotes=[]; pending=[]; submitted=false;
     localStorage.removeItem(MY_KEY);
@@ -539,19 +554,50 @@
     document.getElementById('total-count').textContent=total;
 
     var act=document.getElementById('vote-action');
-    if(submitted){
+    var resetBtn=document.getElementById('reset-btn');
+    if(isClosed()){
+      // 마감 후: 최종 결과만, 투표 잠금
+      var closedPick = myVotes.length ? '내 선택: '+myVotes.map(nameOf).join(', ') : '';
+      act.innerHTML='<div class="my-pick">🔒 투표가 마감되었어요. 최종 결과예요! '+
+        (closedPick?'('+closedPick+')':'')+'</div>';
+      if(resetBtn) resetBtn.style.display='none';
+    }else if(submitted){
       var picks=myVotes.map(nameOf).join(', ');
       act.innerHTML=
         '<div class="my-pick">✅ 투표 완료! 내 선택: '+(picks||'-')+'</div>'+
         '<button class="submit-btn edit" onclick="editVote()">✏️ 다시 선택하기</button>';
+      if(resetBtn) resetBtn.style.display='block';
     }else{
       var n=pending.length;
       act.innerHTML=
         '<button class="submit-btn" onclick="submitVote()"'+(n===0?' disabled':'')+'>'+
           '투표 완료'+(n>0?' ('+n+'/'+MAX_PICK+')':'')+
         '</button>';
+      if(resetBtn) resetBtn.style.display='block';
     }
   }
+
+  /* ---------- 마감 카운트다운 ---------- */
+  var _wasClosed=false;
+  function tick(){
+    var el=document.getElementById('countdown');
+    if(!el) return;
+    var diff=DEADLINE.getTime()-new Date().getTime();
+    if(diff<=0){
+      el.className='countdown closed';
+      el.innerHTML='🔒 투표가 마감되었습니다 (7월 4일 마감)';
+      if(!_wasClosed){ _wasClosed=true; draw(); }  // 마감되는 순간 UI 잠금
+      return;
+    }
+    var d=Math.floor(diff/86400000);
+    var h=Math.floor(diff%86400000/3600000);
+    var m=Math.floor(diff%3600000/60000);
+    var s=Math.floor(diff%60000/1000);
+    var pad=function(x){ return (x<10?'0':'')+x; };
+    el.innerHTML='<span class="dday">⏰ 투표 마감까지 (7월 4일 밤 12시)</span>'+
+      '<b>'+d+'일 '+pad(h)+':'+pad(m)+':'+pad(s)+'</b>';
+  }
+  setInterval(tick,1000); tick();
 
   // 누가 투표하든 모두의 화면이 자동으로 실시간 갱신됨
   votesRef.on('value', function(snap){ currentCounts=snap.val()||{}; draw(); });
