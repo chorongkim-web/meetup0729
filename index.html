@@ -129,7 +129,7 @@
   .photos .ph{
     position:relative;overflow:hidden;background:#f0e9da;
   }
-  .photos img{width:100%;height:100%;object-fit:cover;display:block;}
+  .photos img{width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in;}
   .ph-fallback{
     width:100%;height:100%;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:4px;
@@ -196,6 +196,30 @@
   }
 
   footer{text-align:center;color:#c3bba9;font-size:12px;padding:8px 0;}
+
+  /* ===== Lightbox ===== */
+  .lightbox{
+    position:fixed;inset:0;background:rgba(0,0,0,.92);
+    display:none;align-items:center;justify-content:center;
+    z-index:999;padding:24px;cursor:zoom-out;
+    opacity:0;transition:opacity .2s ease;
+  }
+  .lightbox.show{display:flex;opacity:1;}
+  .lightbox img{
+    max-width:100%;max-height:100%;border-radius:12px;
+    box-shadow:0 12px 44px rgba(0,0,0,.6);
+    animation:lbZoom .22s ease-out;
+  }
+  .lightbox .lb-close{
+    position:absolute;top:16px;right:22px;color:#fff;
+    font-size:38px;font-weight:300;line-height:1;cursor:pointer;
+    text-shadow:0 2px 8px rgba(0,0,0,.5);
+  }
+  .lightbox .lb-hint{
+    position:absolute;bottom:24px;left:0;right:0;text-align:center;
+    color:rgba(255,255,255,.7);font-size:13px;
+  }
+  @keyframes lbZoom{from{transform:scale(.9);opacity:.4;}to{transform:scale(1);opacity:1;}}
 </style>
 </head>
 <body>
@@ -324,6 +348,13 @@
 
 </div>
 
+<!-- 사진 확대 오버레이 -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <span class="lb-close">&times;</span>
+  <img id="lb-img" src="" alt="확대 사진" />
+  <div class="lb-hint">아무 곳이나 누르면 닫혀요</div>
+</div>
+
 <script>
   /* ---------- 달력 그리기 (2026년 7월, 1일=수요일) ---------- */
   // 0=일 ... 6=토.  2026-07-01은 수요일(3)
@@ -354,6 +385,22 @@
     if(cells.length%7!==0) html+='</tr>';
     body.innerHTML=html;
   })();
+
+  /* ---------- 사진 클릭 시 확대 (라이트박스) ---------- */
+  function openLightbox(src){
+    var lb=document.getElementById('lightbox');
+    document.getElementById('lb-img').src=src;
+    lb.classList.add('show');
+  }
+  function closeLightbox(){
+    document.getElementById('lightbox').classList.remove('show');
+  }
+  document.querySelectorAll('.photos img').forEach(function(img){
+    img.addEventListener('click', function(){ openLightbox(img.src); });
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape') closeLightbox();
+  });
 
   /* ---------- 사진 없을 때 플레이스홀더 ---------- */
   function ph(img){
