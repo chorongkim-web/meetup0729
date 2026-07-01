@@ -194,6 +194,22 @@
     font-size:11.5px;color:#b0a892;background:#faf6ec;border-radius:12px;
     padding:10px 12px;margin-top:14px;line-height:1.5;
   }
+  .vote-opt.locked{cursor:default;}
+  .submit-btn{
+    display:block;width:100%;background:var(--point);color:#fff;border:none;
+    border-radius:16px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;
+    margin-top:4px;transition:.15s;
+  }
+  .submit-btn:active{transform:scale(.99);}
+  .submit-btn:disabled{opacity:.4;cursor:default;}
+  .submit-btn.edit{background:#fff;color:var(--point);border:2px solid var(--point);}
+  .my-pick{
+    text-align:center;font-size:13.5px;color:var(--green);font-weight:700;
+    margin:4px 0 12px;
+  }
+  .hint-max{
+    text-align:center;color:#e0866a;font-size:12px;margin:8px 0 4px;min-height:16px;
+  }
 
   footer{text-align:center;color:#c3bba9;font-size:12px;padding:8px 0;}
 
@@ -333,16 +349,18 @@
   <!-- ===== 3. 투표 ===== -->
   <section>
     <div class="sec-title">🗳️ 어디로 갈까요?</div>
-    <div class="sec-desc">가고 싶은 곳을 눌러주세요. (다시 누르면 바꿀 수 있어요)</div>
+    <div class="sec-desc">가고 싶은 곳을 <b>최대 2곳</b>까지 고르고 '투표 완료'를 눌러주세요.</div>
 
     <div id="vote-list"></div>
+    <div class="hint-max" id="vote-hint"></div>
+    <div id="vote-action"></div>
 
     <div class="total-line">지금까지 <b id="total-count">0</b>표</div>
-    <button class="reset-btn" onclick="resetVote()">내 투표 취소하기</button>
+    <button class="reset-btn" id="reset-btn" onclick="resetVote()">내 투표 취소하기</button>
 
     <div class="note">
-      💡 <b>실시간 투표</b>예요! 누가 투표하면 모두의 화면에 바로 반영돼요.
-      마음이 바뀌면 다른 곳을 눌러 언제든 바꿀 수 있어요.
+      💡 <b>실시간 투표</b>예요! 가고 싶은 곳을 최대 2곳 고르고 <b>투표 완료</b>를 누르면
+      모두의 화면에 바로 반영돼요. 완료 후에도 <b>다시 선택하기</b>로 언제든 바꿀 수 있어요.
     </div>
   </section>
 
@@ -427,31 +445,87 @@
     box.appendChild(f);
   }
 
-  /* ---------- 실시간 투표 (Firebase Realtime Database) ---------- */
+  /* ---------- 실시간 투표 (최대 2곳 선택 + 투표완료) ---------- */
   var RESTOS=[
     {key:'woothender', name:'우텐더 정자점', sub:'한우 오마카세'},
     {key:'moons',      name:'문스',        sub:'용인 파스타'},
     {key:'sushisora',  name:'스시소라 정자점', sub:'스시 오마카세'}
   ];
-  var MY_KEY='meetup0729_myvote';        // 내가 뭘 골랐는지(이 폰에만 기억)
+  var MAX_PICK=2;
+  var MY_KEY='meetup0729_myvotes';       // 내가 확정한 선택들(이 폰에만 기억)
   var votesRef=db.ref('votes');          // 모두가 공유하는 투표 집계
+  var currentCounts={};                  // 실시간으로 받아오는 표 집계
 
-  function getMyVote(){ return localStorage.getItem(MY_KEY); }
+  function loadMine(){
+    try{ return JSON.parse(localStorage.getItem(MY_KEY))||[]; }catch(e){ return []; }
+  }
+  var myVotes=loadMine();                // 확정된 내 선택(배열)
+  var pending=myVotes.slice();           // 편집 중 선택
+  var submitted=myVotes.length>0;        // 확정 여부
 
-  function render(counts){
-    counts=counts||{};
-    var my=getMyVote();
+  function nameOf(key){
+    for(var i=0;i<RESTOS.length;i++){ if(RESTOS[i].key===key) return RESTOS[i].name; }
+    return key;
+  }
+  function dec(c){ c=(c||0)-1; return c<0?0:c; }
+  function inc(c){ return (c||0)+1; }
+  function hint(msg){ var h=document.getElementById('vote-hint'); if(h) h.textContent=msg||''; }
+
+  // 식당 선택/해제 (확정 전에만)
+  function toggle(key){
+    if(submitted) return;
+    var i=pending.indexOf(key);
+    if(i>=0){ pending.splice(i,1); hint(''); }
+    else{
+      if(pending.length>=MAX_PICK){ hint('최대 '+MAX_PICK+'곳까지 고를 수 있어요'); return; }
+      pending.push(key); hint('');
+    }
+    draw();
+  }
+
+  // 투표 완료 → 서버에 반영
+  function submitVote(){
+    if(pending.length===0) return;
+    var removeList=myVotes.filter(function(k){ return pending.indexOf(k)<0; });
+    var addList=pending.filter(function(k){ return myVotes.indexOf(k)<0; });
+    removeList.forEach(function(k){ db.ref('votes/'+k).transaction(dec); });
+    addList.forEach(function(k){ db.ref('votes/'+k).transaction(inc); });
+    myVotes=pending.slice();
+    localStorage.setItem(MY_KEY, JSON.stringify(myVotes));
+    submitted=true; hint('');
+    draw();
+  }
+
+  // 다시 선택하기
+  function editVote(){
+    submitted=false;
+    pending=myVotes.slice();
+    hint(''); draw();
+  }
+
+  // 내 투표 취소하기 (표 회수 후 처음 상태로)
+  function resetVote(){
+    myVotes.forEach(function(k){ db.ref('votes/'+k).transaction(dec); });
+    myVotes=[]; pending=[]; submitted=false;
+    localStorage.removeItem(MY_KEY);
+    hint(''); draw();
+  }
+
+  function draw(){
+    var counts=currentCounts||{};
+    var mine = submitted ? myVotes : pending;
     var total=0;
     RESTOS.forEach(function(r){ total+=(counts[r.key]||0); });
+
     var list=document.getElementById('vote-list');
     list.innerHTML='';
     RESTOS.forEach(function(r){
       var c=counts[r.key]||0;
       var pct= total>0 ? Math.round(c/total*100) : 0;
-      var sel = (my===r.key)?' selected':'';
+      var sel = (mine.indexOf(r.key)>=0)?' selected':'';
       var div=document.createElement('div');
-      div.className='vote-opt'+sel;
-      div.onclick=function(){vote(r.key);};
+      div.className='vote-opt'+sel+(submitted?' locked':'');
+      div.onclick=function(){ toggle(r.key); };
       div.innerHTML=
         '<div class="vote-fill" style="width:'+pct+'%"></div>'+
         '<div class="vote-row">'+
@@ -463,28 +537,24 @@
       list.appendChild(div);
     });
     document.getElementById('total-count').textContent=total;
-  }
 
-  function vote(key){
-    var my=getMyVote();
-    if(my===key){ return; }            // 같은 거 다시 누르면 유지
-    if(my){                            // 이전 표 회수
-      db.ref('votes/'+my).transaction(function(c){ c=(c||0)-1; return c<0?0:c; });
+    var act=document.getElementById('vote-action');
+    if(submitted){
+      var picks=myVotes.map(nameOf).join(', ');
+      act.innerHTML=
+        '<div class="my-pick">✅ 투표 완료! 내 선택: '+(picks||'-')+'</div>'+
+        '<button class="submit-btn edit" onclick="editVote()">✏️ 다시 선택하기</button>';
+    }else{
+      var n=pending.length;
+      act.innerHTML=
+        '<button class="submit-btn" onclick="submitVote()"'+(n===0?' disabled':'')+'>'+
+          '투표 완료'+(n>0?' ('+n+'/'+MAX_PICK+')':'')+
+        '</button>';
     }
-    db.ref('votes/'+key).transaction(function(c){ return (c||0)+1; });  // 새 표 반영
-    localStorage.setItem(MY_KEY,key);
-    votesRef.once('value').then(function(s){ render(s.val()); });       // 내 체크 즉시 표시
-  }
-  function resetVote(){
-    var my=getMyVote();
-    if(!my) return;
-    db.ref('votes/'+my).transaction(function(c){ c=(c||0)-1; return c<0?0:c; });
-    localStorage.removeItem(MY_KEY);
-    votesRef.once('value').then(function(s){ render(s.val()); });
   }
 
   // 누가 투표하든 모두의 화면이 자동으로 실시간 갱신됨
-  votesRef.on('value', function(snap){ render(snap.val()); });
+  votesRef.on('value', function(snap){ currentCounts=snap.val()||{}; draw(); });
 </script>
 </body>
 </html>
